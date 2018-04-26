@@ -22,8 +22,8 @@ const std::string robot_name = "Kuka-IIWA";
 
 unsigned long long controller_counter = 0;
 
-const bool simulation = true;
-// const bool simulation = false;
+//const bool simulation = true;
+const bool simulation = false;
 
 // redis keys:
 // - write:
@@ -83,10 +83,10 @@ int main() {
 	/*double kp = 25.0;
 	double kv = 5.0;
 	double kvq = 5.0; // Joints*/
-	double kp = 100.0;
-	double kv = 30.0;
-	double kvq = 20.0;
-	double kpq = 30.0;
+	double kp = 50.0;
+	double kv = 14.0;
+	double kvq = 5.0;
+	double kpq = 10.0;
 
 	VectorXd coriolis = VectorXd::Zero(dof);
 
@@ -95,8 +95,8 @@ int main() {
 	Vector3d initial_xpos = Vector3d(0.0,0.0,0.0);
 	robot->position(initial_xpos, "link7", endeffector_pos); // Get initial position of link7 (endeffector)
 	Vector3d desired_xpos = initial_xpos;
-	VectorXd q_desired = VectorXd::Zero(dof);
-	VectorXd q_start = robot->_q;
+	VectorXd q_desired = robot->_q;
+	//VectorXd q_start = robot->_q;
 
 	//Vector3d desired_xpos = Vector3d(0.0,0.3,0.2);
 
@@ -105,9 +105,10 @@ int main() {
 	//Matrix3d initial_xrot;
 	//robot->rotation(initial_xrot, "link7");
 	Matrix3d desired_xrot = Matrix3d::Identity(3,3);
-	desired_xrot << 0,1,0,
+	robot->rotation(desired_xrot, "link7");
+	/*desired_xrot << 0,1,0,
 					1,0,0,
-					0,0,-1;
+					0,0,-1;*/
 
 
 	// Linear operational space matrices
@@ -198,10 +199,8 @@ int main() {
 		desired_x(2) = abs(0.5*sin(M_PI/4*time));*/
 
 		// Trajectory Circle (Position)
-		desired_xpos(0) = initial_xpos(0) + 0.15*cos(M_PI/4*time); 
-		desired_xpos(2) = initial_xpos(2) + 0.15*sin(M_PI/4*time);
-		q_desired = robot->_q;
-		q_desired(3) = q_start(3);
+		desired_xpos(0) = initial_xpos(0) + 0.1*(1-cos(M_PI/4*time)); 
+		desired_xpos(2) = initial_xpos(2) + 0.1*sin(M_PI/4*time);
 
 		// KEVEN TRAJECTORY
 		// set desired end effector position
@@ -221,7 +220,6 @@ int main() {
 
 		// Get current position
 		robot->position(x_pos, "link7", endeffector_pos);
-		desired_xpos(1) = x_pos(1); // We don't want to control the y-pos
 
 		// Get current rotation
 		robot->rotation(x_rot, "link7");
@@ -233,7 +231,7 @@ int main() {
 
 		// Get current error
 		pos_error << x_pos - desired_xpos;
-		robot->orientationError(rot_error, desired_xrot, x_rot);
+		Sai2Model::orientationError(rot_error, desired_xrot, x_rot);
 		
 		robot->Jv(Jv, "link7", endeffector_pos); // Populate linear Jacobian
 		robot->Jw(Jw, "link7"); // Populate angular Jacobian
@@ -259,7 +257,7 @@ int main() {
 		F_pos = lambda_pos*(-kp*pos_error - kv*linVel);
 		F_ang = lambda_w_const*( -kp*rot_error- kv*angVel);
 
-		gamma0 = -kpq*(robot->_q - q_desired)-kvq*robot->_M*robot->_dq; // Damp joint motions, DO WE HAVE ENOUGH DOF FOR THIS?
+		gamma0 = robot->_M*(-kpq*(robot->_q - q_desired)-kvq*robot->_dq); // Damp joint motions, DO WE HAVE ENOUGH DOF FOR THIS?
 		//gamma0 = -kvq*robot->_M*robot->_dq;
 
 		command_torques = Jv.transpose()*F_pos + Nv.transpose()*Jw.transpose()*F_ang + Nw_const*gamma0;
