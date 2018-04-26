@@ -86,7 +86,7 @@ int main() {
 	double kp = 100.0;
 	double kv = 30.0;
 	double kvq = 20.0;
-	double kpq = 20.0;
+	double kpq = 30.0;
 
 	VectorXd coriolis = VectorXd::Zero(dof);
 
@@ -95,7 +95,9 @@ int main() {
 	Vector3d initial_xpos = Vector3d(0.0,0.0,0.0);
 	robot->position(initial_xpos, "link7", endeffector_pos); // Get initial position of link7 (endeffector)
 	Vector3d desired_xpos = initial_xpos;
-	VectorXd q_desired = robot->_q;
+	VectorXd q_desired = VectorXd::Zero(dof);
+	VectorXd q_start = robot->_q;
+
 	//Vector3d desired_xpos = Vector3d(0.0,0.3,0.2);
 
 
@@ -110,19 +112,19 @@ int main() {
 
 	// Linear operational space matrices
 	MatrixXd lambda_pos = MatrixXd::Zero(3,3);
-	MatrixXd Jbar_pos = MatrixXd::Zero(dof,3);
-	MatrixXd N_pos = MatrixXd::Zero(dof,dof);
+	MatrixXd Jv_bar = MatrixXd::Zero(dof,3);
+	MatrixXd Nv = MatrixXd::Zero(dof,dof);
 
 	// Angular operational space matrices
-	MatrixXd lambda_ang = MatrixXd::Zero(3,3);
-	MatrixXd Jbar_ang = MatrixXd::Zero(dof,3);
-	MatrixXd N_ang = MatrixXd::Zero(dof,dof);
+	//MatrixXd lambda_ang = MatrixXd::Zero(3,3);
+	//MatrixXd Jbar_ang = MatrixXd::Zero(dof,3);
+	//MatrixXd N_ang = MatrixXd::Zero(dof,dof);
 
-	// Augmented
-	MatrixXd J_ang_aug = MatrixXd::Zero(3, dof);
-	MatrixXd lambda_ang_aug = MatrixXd::Zero(3,3);
-	MatrixXd Jbar_ang_aug = MatrixXd::Zero(dof,3);
-	MatrixXd N_ang_aug = MatrixXd::Zero(dof,dof);
+	// Constrained angular operational space matrices
+	MatrixXd Jw_const = MatrixXd::Zero(3, dof);
+	MatrixXd lambda_w_const = MatrixXd::Zero(3,3);
+	MatrixXd Jw_bar_const = MatrixXd::Zero(dof,3);
+	MatrixXd Nw_const = MatrixXd::Zero(dof,dof);
 
 	// Full Jacobian
 	//MatrixXd J = MatrixXd::Zero(6,dof);
@@ -196,8 +198,10 @@ int main() {
 		desired_x(2) = abs(0.5*sin(M_PI/4*time));*/
 
 		// Trajectory Circle (Position)
-		desired_xpos(0) = initial_xpos(0) + 0.15*cos(M_PI/4*time);
+		desired_xpos(0) = initial_xpos(0) + 0.15*cos(M_PI/4*time); 
 		desired_xpos(2) = initial_xpos(2) + 0.15*sin(M_PI/4*time);
+		q_desired = robot->_q;
+		q_desired(3) = q_start(3);
 
 		// KEVEN TRAJECTORY
 		// set desired end effector position
@@ -217,6 +221,7 @@ int main() {
 
 		// Get current position
 		robot->position(x_pos, "link7", endeffector_pos);
+		desired_xpos(1) = x_pos(1); // We don't want to control the y-pos
 
 		// Get current rotation
 		robot->rotation(x_rot, "link7");
@@ -224,56 +229,40 @@ int main() {
 		// Current velocity
 		robot->linearVelocity(linVel, "link7", endeffector_pos);
 		//robot->angularVelocity(angVel, "link7");
-		dx << linVel, angVel;
 		angVel = Jw*robot->_dq;
 
 		// Get current error
 		pos_error << x_pos - desired_xpos;
 		robot->orientationError(rot_error, desired_xrot, x_rot);
-		error << pos_error, rot_error;
 		
-
-		//robot->J_0(J, "link7", endeffector_pos); // Populate Jacobian
-		robot->Jv(Jv, "link7", endeffector_pos); // Populate Jacobian
-		robot->Jw(Jw, "link7"); // Populate Jacobian
+		robot->Jv(Jv, "link7", endeffector_pos); // Populate linear Jacobian
+		robot->Jw(Jw, "link7"); // Populate angular Jacobian
 
 		// Mass
 		lambda_pos = (Jv*robot->_M_inv*Jv.transpose()).inverse();
-		//lambda_ang = (Jw*robot->_M_inv*Jw.transpose()).inverse();
 
 		// Inverse Jacobians
-		Jbar_pos = (robot->_M_inv)*Jv.transpose()*lambda_pos;
-		Jbar_ang = (robot->_M_inv)*Jw.transpose()*lambda_ang;
+		Jv_bar = (robot->_M_inv)*Jv.transpose()*lambda_pos;
 
 
 		// Nullspace
-		N_pos << MatrixXd::Identity(dof,dof)-Jbar_pos*Jv;
-		N_ang << MatrixXd::Identity(dof,dof)-Jbar_ang*Jw;
+		Nv << MatrixXd::Identity(dof,dof)-Jv_bar*Jv;
+		//N_ang << MatrixXd::Identity(dof,dof)-Jbar_ang*Jw;
 
 		// Augmented
-		J_ang_aug = Jw*N_pos;
-		lambda_ang = (J_ang_aug*robot->_M_inv*J_ang_aug.transpose()).inverse();
-		Jbar_ang_aug = (robot->_M_inv)*J_ang_aug.transpose()*lambda_ang_aug;
+		Jw_const = Jw*Nv;
+		lambda_w_const = (Jw_const*robot->_M_inv*Jw_const.transpose()).inverse();
+		Jw_bar_const = (robot->_M_inv)*Jw_const.transpose()*lambda_w_const;
 
-		N_ang_aug = N_pos.transpose()*(MatrixXd::Identity(dof,dof) - J_ang_aug.transpose()*Jbar_ang_aug.transpose());
-		//F = lambda*(-kp*error - kv*dx);
-		//F_pos = lambda_pos*(-kp*pos_error - kv*linVel);
-		//F_ang = lambda_ang*(-kp*rot_error - kv*angVel);
+		Nw_const = Nv.transpose()*(MatrixXd::Identity(dof,dof) - Jw_const.transpose()*Jw_bar_const.transpose());
 
 		F_pos = lambda_pos*(-kp*pos_error - kv*linVel);
-		F_ang = lambda_ang*( -kp*rot_error- kv*angVel);
+		F_ang = lambda_w_const*( -kp*rot_error- kv*angVel);
 
-		if(controller_counter%1000 == 0){
-			cout<<"Rotation error: "<<rot_error.transpose()<<endl;
-			cout<<"Force: "<<F_ang.transpose()<<endl;
-		}
-
-		//F_ang = lambda_ang_aug*(-kp*rot_error - kv*angVel);
 		gamma0 = -kpq*(robot->_q - q_desired)-kvq*robot->_M*robot->_dq; // Damp joint motions, DO WE HAVE ENOUGH DOF FOR THIS?
+		//gamma0 = -kvq*robot->_M*robot->_dq;
 
-		//command_torques = Jv.transpose()*F_pos + N_pos.transpose()*Jw.transpose()*F_ang + N_pos.transpose()*N_ang.transpose()*gamma0;
-		command_torques = Jv.transpose()*F_pos + N_pos.transpose()*Jw.transpose()*F_ang + N_ang_aug*gamma0;
-		//cout<<"hello"<<endl;
+		command_torques = Jv.transpose()*F_pos + Nv.transpose()*Jw.transpose()*F_ang + Nw_const*gamma0;
 
 		//------ Final torques
 		// command_torques.setZero();
