@@ -17,6 +17,34 @@ void sighandler(int sig)
 using namespace std;
 using namespace Eigen;
 
+/* STATES
+0: Go to initial position
+1: Go to desired position
+2: Open gripper
+3: Surround object
+4: Close gripper
+5; Lift Gripper
+6: Stop
+*/
+
+// Define states
+#define START_POS 0
+#define GOAL_POS 1
+#define OPEN_GRIPPER 2
+#define SURROUND_OBJECT 3
+#define CLOSE_GRIPPER 4
+#define LIFT_GRIPPER 5
+#define STOP 6
+
+// Set how long time each state should take
+const double timeToStart = 2;
+const double timeToGoal = 5;
+const double openGripperTime = 2;
+const double surroundTime = 4;
+const double closeGripperTime = 2;
+const double liftTime = 4;
+
+
 const string robot_file = "../resources/01-kuka-mobile-base/iiwa7.urdf";
 const std::string robot_name = "Kuka-IIWA";
 
@@ -52,6 +80,7 @@ int main() {
 		EE_FORCE_SENSOR_KEY = "sai2::optoforceSensor::6Dsensor::force";
 	}
 
+
 	// start redis client
 	HiredisServerInfo info;
 	info.hostname_ = "127.0.0.1";
@@ -77,16 +106,12 @@ int main() {
 	///    Prepare the joint controller        /////
 	////////////////////////////////////////////////
 
-	//cout<<"hello"<<endl;
 
 	robot->updateModel();
 
 	int dof = robot->dof();
 	
 
-	/*double kp = 25.0;
-	double kv = 5.0;
-	double kvq = 5.0; // Joints*/
 	double kp = 100.0;
 	double kv = 30.0;
 	double kvq = 20.0;
@@ -95,18 +120,30 @@ int main() {
 
 	//Position
 	Vector3d endeffector_pos = Vector3d(0.0,0.0,0.025); // Endeffector's position in frame 7
-	//Vector3d initial_xpos;
-	//robot->position(initial_xpos, "link7", endeffector_pos); // Get initial position of link7 (endeffector)
-	//Vector3d desired_xpos = initial_xpos;
-	Vector3d desired_xpos = Vector3d(0.0,-1.0,0.6);
+	Vector3d initial_xpos = Vector3d(0.0,0.0,0.0);
+	robot->position(initial_xpos, "link7", endeffector_pos); // Get initial position of link7 (endeffector)
+	Vector3d desired_xpos = initial_xpos; // Set desired start position to initial position
+	Vector3d desired_start_pos = initial_xpos; // Set desired start position
+	Vector3d desired_final_pos = Vector3d(0.0,-0.8,0.7); // Set desired final position
+	Vector3d object_pos = Vector3d(0.0,-1.02,0.55); // Position of endeffector when surrounding object
+	Vector3d lift_pos = Vector3d(0.0,-0.8,0.8); // Position of endeffector when lifting object
+
+	// For position controlled vector
+	double desired_gripper_size = 0;
+	bool force_controlled = false; 
+	//VectorXd desired_joint_position = VectorXd::Zero(dof);
+
+	// For force controlled gripper
+	double desired_gripper_force = 0;
 
 	//Rotation
 	//Matrix3d initial_xrot;
 	//robot->rotation(initial_xrot, "link7");
 	Matrix3d desired_xrot = Matrix3d::Identity(3,3);
-	desired_xrot << 1,0,0,
+	robot->rotation(desired_xrot, "link7");
+	/*desired_xrot << 1,0,0,
 					0,1,0,
-					0,0,-1;					
+					0,0,-1;	*/				
 
 	//Desired velocity
 	Vector3d desired_linvel = Vector3d(0.0,0.0,0.0);
@@ -182,14 +219,10 @@ int main() {
 	timer.setLoopFrequency(control_freq);   // 1 KHz
 	timer.setCtrlCHandler(sighandler);    // exit while loop on ctrl-c
 	timer.initializeTimer(1000000); // 1 ms pause before starting loop
-	//cout << "Hello"<<endl;
 
-	// KEVEN TRAJECTORY
-	/*double max_x = 0.6;
-	double min_x = -0.6;
-	double center_y = 0.3;
-	double move_step = 1.0 / 10000;
-	int direction = 1; // 1 is positive, -1 is negative*/
+
+	Vector3d step = (desired_start_pos - initial_xpos)/(timeToStart*control_freq); // Set how much the desired position should change for each iteration in loop
+	int state = START_POS;
 
 	// while window is open:
 	while (runloop) {
@@ -214,60 +247,88 @@ int main() {
 
 		//----------------TRAJECTORIES-----------------------------------
 
-		// Trajectory Half circle in yz-direction
-		/*desired_x(1) = 0.5*cos(M_PI/4*time);
-		desired_x(2) = abs(0.5*sin(M_PI/4*time));*/
+		//---------------- SET STATE ------------------------------------
 
-		// Trajectory Circle (Position)
-		//desired_xpos(0) = 0.5*cos(M_PI/4*time);
-		//desired_xpos(1) = 0.5*sin(M_PI/4*time);
+		// Go to state 1 if distance to start position is small enough
+		if(state == START_POS && (x_pos - desired_start_pos).norm() < 0.01){
+			cout<<"distance to start: "<< (x_pos - desired_start_pos).norm() <<endl;
+			state = GOAL_POS;
+			cout<<"state: GOAL_POS, "<<state<<endl;
+			controller_counter = 0;
+			time = 0;
+			step = (desired_final_pos - desired_start_pos)/(timeToGoal*control_freq);
+		} 
 
-		//desired_xpos(1) = desired_xpos(1)-0.0001;
-
-		// KEVEN TRAJECTORY
-		// set desired end effector position
-		/*auto x = desired_xpos[0];
-		if (x > max_x) {
-			direction = -1;
-
-		} else if (x < min_x) {
-			direction = 1;
+		// Go to state 2 if distance to final position is small enough
+		if(state == GOAL_POS && (x_pos - desired_final_pos).norm() < 0.01) {
+			cout<<"distance to goal: "<< (x_pos - desired_final_pos).norm() <<endl;
+			state = OPEN_GRIPPER;
+			cout<<"state: OPEN_GRIPPER, "<<state<<endl;
+			controller_counter = 0;
+			time = 0;
+			force_controlled = false;
+			desired_gripper_size = 0.12;
+			step = Vector3d::Zero(3);
 		}
-		desired_xpos[0] += direction * move_step;
-		x = desired_xpos[0];
-		desired_xpos[2] = center_y + 0.3 * sin(x * 20.);*/
 
-		//----------------------------------------------------------------
+		// Go to state 3 if the distance to desired joint position is small enough
+		if(state == OPEN_GRIPPER && time==openGripperTime) {
+			state = SURROUND_OBJECT;
+			cout<<"state: SURROUND_OBJECT, "<<state<<endl;
+			controller_counter = 0;
+			time = 0;
+			step = (object_pos - desired_final_pos)/(surroundTime*control_freq);
+		}
+
+		// Go to state 4 if distance to the box is small enough
+		if(state == SURROUND_OBJECT && (x_pos - object_pos).norm() < 0.04) {
+			cout<<"distance to object: "<< (x_pos - object_pos).norm() <<endl;
+			state = CLOSE_GRIPPER;
+			cout<<"state: CLOSE_GRIPPER, "<<state<<endl;
+			controller_counter = 0;
+			time = 0;
+
+			// Control force on gripper
+			force_controlled = true;
+			desired_gripper_force = -100;
+			step = Vector3d::Zero(3);
+		}
+
+		// Go to state 5 when the gripper is closed
+		if(state == CLOSE_GRIPPER && time==closeGripperTime) {
+			state = LIFT_GRIPPER;
+			cout<<"state: LIFT_GRIPPER, "<<state<<endl;
+			controller_counter = 0;
+			time = 0;
+			step = (lift_pos - object_pos)/(liftTime*control_freq);
+		}
+
+		if(state == LIFT_GRIPPER && (x_pos - lift_pos).norm() < 0.02) {
+			state = STOP;
+			cout<<"state: STOP, "<<state<<endl;
+			controller_counter = 0;
+			time = 0;
+			step = Vector3d::Zero(3);
+		}
 
 
-		// Get current position
-		robot->position(x_pos, "link7", endeffector_pos);
-
-		// Get current rotation
-		robot->rotation(x_rot, "link7");
-
-		// Get current position of grippers
-		robot->position(gripper1_pos, "gripper1", Vector3d(0.0,0.0,0.0));
-		robot->position(gripper2_pos, "gripper2", Vector3d(0.0,0.0,0.0));
-
-		// Get current rotation of grippers
-		robot->rotation(gripper1_rot, "gripper1");
-		robot->rotation(gripper2_rot, "gripper2");
+		//---------------- CONTROLLER ------------------------------------
+	
+		robot->position(x_pos, "link7", endeffector_pos); // Get current position
+		robot->rotation(x_rot, "link7"); // Get current rotation
+		desired_xpos += step; // Increase desired position with stepsize
 
 		// Current velocity
 		robot->linearVelocity(linVel, "link7", endeffector_pos);
-		robot->angularVelocity(angVel, "link7");
-		dx << linVel, angVel;
+		angVel = Jw*robot->_dq;
 
 		// Get current error
 		pos_error << x_pos - desired_xpos;
 		robot->orientationError(rot_error, desired_xrot, x_rot);
-		error << pos_error, rot_error;
 		
-
-		//robot->J_0(J, "link7", endeffector_pos); // Populate Jacobian
-		robot->Jv(Jv, "link7", endeffector_pos); // Populate Jacobian
-		robot->Jw(Jw, "link7"); // Populate Jacobian
+		// Get Jacobians
+		robot->Jv(Jv, "link7", endeffector_pos);
+		robot->Jw(Jw, "link7");
 
 		// Mass
 		lambda_pos = (Jv*robot->_M_inv*Jv.transpose()).inverse();
@@ -288,20 +349,29 @@ int main() {
 		Jbar_ang_aug = (robot->_M_inv)*J_ang_aug.transpose()*lambda_ang_aug;
 
 		N_ang_aug = N_pos.transpose()*(MatrixXd::Identity(dof,dof) - J_ang_aug.transpose()*Jbar_ang_aug.transpose());
-		//F = lambda*(-kp*error - kv*dx);
 		F_pos = lambda_pos*(-kp*pos_error - kv*(linVel-desired_linvel));
 		F_ang = lambda_ang*(-kp*rot_error - kv*(angVel-desired_angvel));
-		//F_ang = lambda_ang_aug*(-kp*rot_error - kv*angVel);
-		gamma0 = -kvq*robot->_M*robot->_dq; // Damp joint motions, DO WE HAVE ENOUGH DOF FOR THIS?
+		gamma0 = -kvq*robot->_M*robot->_dq; // Damp joint motions
 
-		//command_torques = Jv.transpose()*F_pos + N_pos.transpose()*Jw.transpose()*F_ang; //+ N_pos.transpose()*N_ang.transpose()*gamma0;
 		command_torques = Jv.transpose()*F_pos + J_ang_aug.transpose()*F_ang + N_ang_aug*gamma0;
-		//cout<<"hello"<<endl;
+
+		// Control gripper
+		if(force_controlled){
+			command_torques(10) = desired_gripper_force;
+			command_torques(11) = desired_gripper_force;
+		}
+		else{
+			command_torques(10) = -kp * ((robot->_q)(10) - desired_gripper_size/2) - kv * (robot->_dq)(10);
+			command_torques(11) = command_torques(10);
+		}
+		
 
 		//------ Final torques
 		// command_torques.setZero();
 
 		//command_torques << 1,0,0,0,0,0,0,0,0,0,0,0;
+		//cout<<"Command Torques: "<<command_torques<<endl;
+
 		redis_client.setEigenMatrixDerived(JOINT_TORQUES_COMMANDED_KEY, command_torques);
 
 		controller_counter++;
@@ -320,3 +390,4 @@ int main() {
 
     return 0;
 }
+ 
