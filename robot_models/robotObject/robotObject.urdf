@@ -34,44 +34,30 @@
         </inertial>
     </link>
 
-    <link name="virtual4">
-        <inertial>
-            <origin xyz="0 0 0" rpy="0 0 0"/>
-            <mass value="0.0001"/>
-            <inertia ixx="0.000001"  ixy="0"  ixz="0" iyy="0.000001" iyz="0.0" izz="0.000001" />
-        </inertial>
-    </link>
-
-    <link name="virtual5">
-        <inertial>
-            <origin xyz="0 0 0" rpy="0 0 0"/>
-            <mass value="0.0001"/>
-            <inertia ixx="0.000001"  ixy="0"  ixz="0" iyy="0.000001" iyz="0.0" izz="0.000001" />
-        </inertial>
-    </link>
-
     <link name="base_link">
         <inertial>
-            <origin xyz="0 -1.0 0.5" rpy="0 0 0"/>
-            <!--<mass value="5"/>-->
-            <mass value="0.1"/>
+            <origin xyz="-0.1 0 0.07" rpy="0 0 0"/>
+            <mass value="5"/>
             <inertia ixx="0.05"  ixy="0"  ixz="0" iyy="0.06" iyz="0" izz="0.03" />
         </inertial>
-        <visual>
-            <origin xyz="0 -1.0 0.1" rpy="0 -0 0" />
+    <visual>
+        <origin xyz="0 0.20 -0.125" rpy="0 -0 0" />
+        <geometry>
+            <box size="0.4 0.7 0.25"/>
+        </geometry>
+    </visual>
+    <visual>
+        <origin xyz="0 0 0" rpy="0 -0 0" />
+        <geometry>
+            <box size="0.1 0.1 0.1"/>
+        </geometry>
+    </visual>
+        <!-- <collision>
+            <origin xyz="0 0 0" rpy="0 -0 0" />
             <geometry>
-                <box size="0.1 0.1 0.1"/>
+                <mesh filename="../../../robot_models/iiwa7/meshes/base.obj" scale="1 1 1" />
             </geometry>
-            <material name="material_green">
-                <color rgba="0.1 0.3 0.8 1"/>
-            </material>
-        </visual>
-        <collision>
-            <origin xyz="0 -1.0 0.1" rpy="0 0 0" />
-            <geometry>
-                <box size="0.1 0.1 0.1"/>
-            </geometry>
-        </collision>
+        </collision> -->
     </link>
 
 
@@ -101,26 +87,10 @@
         <limit lower="-2.967" upper="2.967" effort="176" velocity="1.7104" />
     </joint>
 
-    <joint name="jrx" type="revolute">
+    <joint name="jr" type="revolute">
         <parent link="virtual3" />
-        <child link="virtual4" />
-        <origin xyz="0 0 0.12" rpy="0 0 0"/>
-        <axis xyz="1 0 0" />
-        <limit lower="-2.967" upper="2.967" effort="176" velocity="1.7104" />
-    </joint>
-
-    <joint name="jry" type="revolute">
-        <parent link="virtual4" />
-        <child link="virtual5" />
-        <origin xyz="0 0 0.12" rpy="0 0 0"/>
-        <axis xyz="0 1 0" />
-        <limit lower="-2.967" upper="2.967" effort="176" velocity="1.7104" />
-    </joint>
-
-    <joint name="jrz" type="revolute">
-        <parent link="virtual5" />
         <child link="base_link" />
-        <origin xyz="0 0 0.12" rpy="0 0 0"/>
+        <origin xyz="0 0 0.35" rpy="0 0 0"/>
         <axis xyz="0 0 1" />
         <limit lower="-2.967" upper="2.967" effort="176" velocity="1.7104" />
     </joint>

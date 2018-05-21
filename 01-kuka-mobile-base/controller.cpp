@@ -27,6 +27,7 @@ using namespace Eigen;
 6: Stop
 */
 
+// TODO: Only use one state to go to a desired position instead of one state for each position
 // Define states
 #define START_POS 0
 #define GOAL_POS 1
@@ -36,14 +37,9 @@ using namespace Eigen;
 #define LIFT_GRIPPER 5
 #define STOP 6
 
-// Set how long time each state should take
-const double timeToStart = 2;
-const double timeToGoal = 5;
+// Set how long time it should stay in open and close states
 const double openGripperTime = 2;
-const double surroundTime = 4;
 const double closeGripperTime = 2;
-const double liftTime = 4;
-
 
 const string robot_file = "../resources/01-kuka-mobile-base/iiwa7.urdf";
 const std::string robot_name = "Kuka-IIWA";
@@ -54,7 +50,6 @@ unsigned long long controller_counter = 0;
 const bool simulation = true;
 // const bool simulation = false;
 
-//bool grasp = false;
 
 // redis keys:
 // - write:
@@ -125,8 +120,11 @@ int main() {
 	Vector3d desired_xpos = initial_xpos; // Set desired start position to initial position
 	Vector3d desired_start_pos = initial_xpos; // Set desired start position
 	Vector3d desired_final_pos = Vector3d(0.0,-0.8,0.7); // Set desired final position
-	Vector3d object_pos = Vector3d(0.0,-1.02,0.55); // Position of endeffector when surrounding object
+	Vector3d pick_pos = Vector3d(0.0,-1.02,0.52); // Position of endeffector when surrounding object
 	Vector3d lift_pos = Vector3d(0.0,-0.8,0.8); // Position of endeffector when lifting object
+	//Vector3d place_pos = Vector3d(-0.8, 0.0,0.52); // Position of endeffector when placing object
+
+	//TODO: Make a list of all positions, set next_pos and prev_pos, keep track of position index
 
 	// For position controlled vector
 	double desired_gripper_size = 0;
@@ -136,8 +134,10 @@ int main() {
 	// For force controlled gripper
 	double desired_gripper_force = 0;
 
+	// Velocity of movement
+	double velocity = 0.05;
+
 	//Rotation
-	//Matrix3d initial_xrot;
 	//robot->rotation(initial_xrot, "link7");
 	Matrix3d desired_xrot = Matrix3d::Identity(3,3);
 	robot->rotation(desired_xrot, "link7");
@@ -178,33 +178,14 @@ int main() {
 	VectorXd F_ang = VectorXd::Zero(3); 
 	VectorXd command_torques = VectorXd::Zero(dof);
 
-
 	// Position and orientation of endeffector
 	Vector3d x_pos = Vector3d::Zero(3);
 	Matrix3d x_rot = Matrix3d::Zero(3,3);
-
-	// Position and orientation of gripper1
-	Vector3d gripper1_pos = Vector3d::Zero(3);
-	Matrix3d gripper1_rot = Matrix3d::Zero(3,3);	
-
-	// Position and orientation of gripper2
-	Vector3d gripper2_pos = Vector3d::Zero(3);
-	Matrix3d gripper2_rot = Matrix3d::Zero(3,3);
 
 	// Position and Orientation error
 	Vector3d pos_error = Vector3d::Zero(3);
 	Vector3d rot_error = Vector3d::Zero(3);
 	VectorXd error = VectorXd::Zero(6);
-
-	// Position and Orientation error gripper1
-	Vector3d pos_error_gripper1 = Vector3d::Zero(3);
-	Vector3d rot_error_gripper1 = Vector3d::Zero(3);
-	VectorXd error_gripper1 = VectorXd::Zero(6);
-
-	// Position and Orientation error gripper2
-	Vector3d pos_error_gripper2 = Vector3d::Zero(3);
-	Vector3d rot_error_gripper2 = Vector3d::Zero(3);
-	VectorXd error_gripper2 = VectorXd::Zero(6);
 
 	// Velocity
 	Vector3d linVel = Vector3d::Zero(3);
@@ -220,8 +201,8 @@ int main() {
 	timer.setCtrlCHandler(sighandler);    // exit while loop on ctrl-c
 	timer.initializeTimer(1000000); // 1 ms pause before starting loop
 
-
-	Vector3d step = (desired_start_pos - initial_xpos)/(timeToStart*control_freq); // Set how much the desired position should change for each iteration in loop
+	Vector3d direction = (desired_final_pos - desired_start_pos)/(desired_final_pos - desired_start_pos).norm();
+	Vector3d step = (velocity*direction)/control_freq; // Set how much the desired position should change for each iteration in loop
 	int state = START_POS;
 
 	// while window is open:
@@ -256,7 +237,10 @@ int main() {
 			cout<<"state: GOAL_POS, "<<state<<endl;
 			controller_counter = 0;
 			time = 0;
-			step = (desired_final_pos - desired_start_pos)/(timeToGoal*control_freq);
+			//TODO: Change to velocity instead (step=velocity/control_freq)
+			//step = (desired_final_pos - desired_start_pos)/(timeToGoal*control_freq);
+			direction = (desired_final_pos - desired_start_pos)/(desired_final_pos - desired_start_pos).norm();
+			step = (velocity*direction)/control_freq;
 		} 
 
 		// Go to state 2 if distance to final position is small enough
@@ -277,12 +261,13 @@ int main() {
 			cout<<"state: SURROUND_OBJECT, "<<state<<endl;
 			controller_counter = 0;
 			time = 0;
-			step = (object_pos - desired_final_pos)/(surroundTime*control_freq);
+			direction = (pick_pos - desired_final_pos)/(pick_pos - desired_final_pos).norm();
+			step = (velocity*direction)/control_freq;
 		}
 
 		// Go to state 4 if distance to the box is small enough
-		if(state == SURROUND_OBJECT && (x_pos - object_pos).norm() < 0.04) {
-			cout<<"distance to object: "<< (x_pos - object_pos).norm() <<endl;
+		if(state == SURROUND_OBJECT && (x_pos - pick_pos).norm() < 0.04) {
+			cout<<"distance to object: "<< (x_pos - pick_pos).norm() <<endl;
 			state = CLOSE_GRIPPER;
 			cout<<"state: CLOSE_GRIPPER, "<<state<<endl;
 			controller_counter = 0;
@@ -290,7 +275,7 @@ int main() {
 
 			// Control force on gripper
 			force_controlled = true;
-			desired_gripper_force = -100;
+			desired_gripper_force = -10;
 			step = Vector3d::Zero(3);
 		}
 
@@ -300,10 +285,11 @@ int main() {
 			cout<<"state: LIFT_GRIPPER, "<<state<<endl;
 			controller_counter = 0;
 			time = 0;
-			step = (lift_pos - object_pos)/(liftTime*control_freq);
+			direction = (lift_pos - pick_pos)/(lift_pos - pick_pos).norm();
+			step = (velocity*direction)/control_freq;
 		}
 
-		if(state == LIFT_GRIPPER && (x_pos - lift_pos).norm() < 0.02) {
+		if(state == LIFT_GRIPPER && (x_pos - lift_pos).norm() < 0.04) {
 			state = STOP;
 			cout<<"state: STOP, "<<state<<endl;
 			controller_counter = 0;
@@ -324,7 +310,7 @@ int main() {
 
 		// Get current error
 		pos_error << x_pos - desired_xpos;
-		robot->orientationError(rot_error, desired_xrot, x_rot);
+		Sai2Model::orientationError(rot_error, desired_xrot, x_rot);
 		
 		// Get Jacobians
 		robot->Jv(Jv, "link7", endeffector_pos);

@@ -4,14 +4,14 @@
 
 	<robot name="Kuka-IIWA">
 		<!-- model node is required -->
-		<model dir="../resources/01-kuka-mobile-base" path="iiwa7.urdf" name="kuka_iiwa" />
+		<model dir="../resources/02-kuka-dual-arm" path="iiwa7.urdf" name="kuka_iiwa" />
 		<!-- origin node is optional -->
 		<origin xyz="0.0 0.0 0.0" rpy="0 0 0" />
 	</robot>
 
 	<robot name="robotObject">
 		<!-- model node is required -->
-		<model dir="../resources/01-kuka-mobile-base" path="robotObject.urdf" name="robotObject" />
+		<model dir="../resources/02-kuka-dual-arm" path="robotObject.urdf" name="robotObject" />
 		<!-- origin node is optional -->
 		<origin xyz="0.0 0.0 0.0" rpy="0 0 0" />
 	</robot>

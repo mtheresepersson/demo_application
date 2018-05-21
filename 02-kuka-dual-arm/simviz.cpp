@@ -17,9 +17,9 @@
 
 using namespace std;
 
-const string world_file = "../resources/01-kuka-mobile-base/world.urdf";
-const string robot_file = "../resources/01-kuka-mobile-base/iiwa7.urdf";
-const string robotObject_file = "../resources/01-kuka-mobile-base/robotObject.urdf";
+const string world_file = "../resources/02-kuka-dual-arm/world.urdf";
+const string robot_file = "../resources/02-kuka-dual-arm/iiwa7.urdf";
+const string robotObject_file = "../resources/02-kuka-dual-arm/robotObject.urdf";
 const string robot_name = "Kuka-IIWA";
 const string robotObject_name = "robotObject";
 const string camera_name = "camera_fixed";
@@ -88,10 +88,14 @@ int main() {
 	auto robotObject = new Sai2Model::Sai2Model(robotObject_file, false);
 
 	// set initial position to match kuka driver
-	sim->setJointPosition(robot_name, 3, 90.0/180.0*M_PI);
-	sim->setJointPosition(robot_name, 4, -30.0/180.0*M_PI);
-	sim->setJointPosition(robot_name, 6, 60.0/180.0*M_PI);
-	sim->setJointPosition(robot_name, 8, -90.0/180.0*M_PI);
+	// sim->setJointPosition(robot_name, 3, 90.0/180.0*M_PI);
+	// sim->setJointPosition(robot_name, 4, -30.0/180.0*M_PI);
+	// sim->setJointPosition(robot_name, 6, 60.0/180.0*M_PI);
+	// sim->setJointPosition(robot_name, 8, -90.0/180.0*M_PI);
+	// sim->setJointPosition(robot_name, 12, 90.0/180.0*M_PI);
+	// sim->setJointPosition(robot_name, 13, -30.0/180.0*M_PI);
+	// sim->setJointPosition(robot_name, 15, 60.0/180.0*M_PI);
+	// sim->setJointPosition(robot_name, 17, -90.0/180.0*M_PI);
 
 	sim->getJointPositions(robotObject_name, robotObject->_q);
 	sim->getJointVelocities(robotObject_name, robotObject->_dq);
@@ -257,13 +261,18 @@ void simulation(Sai2Model::Sai2Model* robot, Sai2Model::Sai2Model* robotObject, 
 		// read torques from Redis
 		redis_client.getEigenMatrixDerived(JOINT_TORQUES_COMMANDED_KEY, robot_torques);
 
-		//TODO set gripper pos
-	 	double centerGripper = (robot->_q(10)-robot->_q(11))/2;
-	 	double centerGripperVel = (robot->_dq(10)-robot->_dq(11))/2;
+		//Set gripper pos
+	 	double centerGripper = (robot->_q(robot->jointId("jgripper1"))-robot->_q(robot->jointId("jgripper2")))/2;
+	 	double centerGripperVel = (robot->_dq(robot->jointId("jgripper1"))-robot->_dq(robot->jointId("jgripper2")))/2;
+	 	double centerGripper_l = (robot->_q(robot->jointId("arm2_jgripper1"))-robot->_q(robot->jointId("arm2_jgripper2")))/2;
+	 	double centerGripperVel_l = (robot->_dq(robot->jointId("arm2_jgripper1"))-robot->_dq(robot->jointId("arm2_jgripper2")))/2;
 
 	 	double force = -(100*centerGripper + 20*centerGripperVel);
-	 	robot_torques(10) += force;
-	 	robot_torques(11) -= force;
+	 	double force_l = -(100*centerGripper_l + 20*centerGripperVel_l);
+	 	robot_torques(robot->jointId("jgripper1")) += force;
+	 	robot_torques(robot->jointId("jgripper2")) -= force;
+	 	robot_torques(robot->jointId("arm2_jgripper1")) += force_l;
+	 	robot_torques(robot->jointId("arm2_jgripper2")) -= force_l;
 		sim->setJointTorques(robot_name, robot_torques+gravityTorques);
 		//sim->setJointTorques(robot_name, robot_torques);
 

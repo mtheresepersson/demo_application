@@ -85,7 +85,7 @@ int main() {
 
 	VectorXd initial_position = robot->_q;
 	VectorXd desired_position = initial_position;
-	desired_position(10) = 1.5;
+	//desired_position(10) = 1.5;
 
 	// create a loop timer
 	double control_freq = 1000;
@@ -116,7 +116,7 @@ int main() {
 		////////////////////////////// Compute joint torques
 		double time = controller_counter/control_freq;
 		//desired_position(4) = initial_position(4) + M_PI/2*sin(2*M_PI*time);
-		desired_position(5) = initial_position(5) + M_PI*sin(2*M_PI*time);
+		desired_position(3) = initial_position(3) + M_PI*sin(M_PI*time);
 
 		//command_torques << 0,0,0,0,0,0,0.1;
 

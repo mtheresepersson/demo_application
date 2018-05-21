@@ -226,7 +226,7 @@ int main() {
 
 		// Get current error
 		pos_error << x_pos - desired_xpos;
-		robot->orientationError(rot_error, desired_xrot, x_rot);
+		Sai2Model::orientationError(rot_error, desired_xrot, x_rot);
 		error << pos_error, rot_error;
 		
 
